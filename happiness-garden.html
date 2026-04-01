@@ -1,0 +1,799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Happiness Garden</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0a0a14; overflow:hidden; font-family:'Press Start 2P',monospace; }
+
+  #worldCanvas {
+    position:fixed; inset:0; width:100vw; height:100vh;
+    image-rendering:pixelated; image-rendering:crisp-edges; cursor:grab;
+  }
+  #worldCanvas.dragging { cursor:grabbing; }
+
+  /* HUD */
+  #hud {
+    position:fixed; top:0; left:0; right:0;
+    padding:10px 14px;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    z-index:10; pointer-events:none;
+  }
+  .pbox {
+    background:#0a0a18; border:3px solid #c8a84b;
+    box-shadow:3px 3px 0 #5a3e10;
+    padding:6px 10px; pointer-events:auto;
+  }
+  #title-box { font-size:7px; color:#c8a84b; line-height:2; }
+  #title-box span { display:block; font-size:5px; color:#7cbf5a; margin-top:2px; }
+  #count-box { font-size:6px; color:#c8a84b; text-align:right; line-height:2; }
+  #count-box b { color:#fff; font-size:13px; display:block; }
+
+  /* Minimap */
+  #minimap-wrap {
+    position:fixed; bottom:90px; right:12px; z-index:10;
+  }
+  #minimap-box {
+    background:#0a0a18; border:3px solid #c8a84b;
+    box-shadow:3px 3px 0 #5a3e10; padding:4px;
+  }
+  #minimap { display:block; image-rendering:pixelated; }
+  #minimap-lbl { font-size:5px; color:#7cbf5a; text-align:center; margin-bottom:3px; }
+
+  /* Scroll hint */
+  #scroll-hint {
+    position:fixed; top:54px; left:50%;
+    transform:translateX(-50%);
+    background:#0a0a18; border:3px solid #5a5a8a;
+    box-shadow:3px 3px 0 #222240;
+    color:#8888cc; font-size:5px; padding:5px 12px;
+    z-index:10; pointer-events:none;
+    opacity:0; transition:opacity 0.4s;
+  }
+
+  /* Panel */
+  #panel {
+    position:fixed; bottom:0; left:0; right:0;
+    padding:10px 12px 16px;
+    z-index:10;
+    background:linear-gradient(to top,rgba(8,6,18,0.97) 70%,transparent);
+  }
+  #panel-lbl { font-size:6px; color:#7cbf5a; text-align:center; margin-bottom:8px; letter-spacing:.08em; }
+  #btns { display:flex; gap:6px; justify-content:center; flex-wrap:wrap; max-width:640px; margin:0 auto; }
+
+  .ebtn {
+    background:#0a0a18; border:3px solid #444; color:#aaa;
+    padding:7px 11px; font-family:'Press Start 2P',monospace; font-size:6px;
+    cursor:pointer; box-shadow:3px 3px 0 #111; line-height:1.8; letter-spacing:.04em;
+  }
+  .ebtn .ic { display:block; font-size:15px; text-align:center; margin-bottom:3px; }
+  .ebtn:hover { transform:translate(-1px,-1px); box-shadow:4px 4px 0 #111; background:#14142a; }
+  .ebtn:active { transform:translate(2px,2px); box-shadow:1px 1px 0 #111; }
+
+  .ebtn[data-e="joy"]       { border-color:#f9c74f; color:#f9c74f; }
+  .ebtn[data-e="gratitude"] { border-color:#80ed99; color:#80ed99; }
+  .ebtn[data-e="love"]      { border-color:#f87171; color:#f87171; }
+  .ebtn[data-e="wonder"]    { border-color:#7dd3fc; color:#7dd3fc; }
+  .ebtn[data-e="calm"]      { border-color:#a5f3fc; color:#a5f3fc; }
+  .ebtn[data-e="playful"]   { border-color:#fb923c; color:#fb923c; }
+
+  #toast {
+    position:fixed; top:54px; left:50%; transform:translateX(-50%);
+    background:#0a0a18; border:3px solid #c8a84b; box-shadow:3px 3px 0 #5a3e10;
+    color:#c8a84b; font-size:6px; padding:6px 14px;
+    z-index:20; opacity:0; transition:opacity .2s;
+    pointer-events:none; white-space:nowrap;
+  }
+
+  /* Name label tooltip that appears over flower */
+  #flower-tip {
+    position:fixed; z-index:15; pointer-events:none;
+    background:#0a0a18; border:2px solid #c8a84b;
+    box-shadow:2px 2px 0 #5a3e10;
+    color:#c8a84b; font-size:5px; padding:4px 8px;
+    opacity:0; transition:opacity .2s; white-space:nowrap;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="worldCanvas"></canvas>
+
+<div id="hud">
+  <div class="pbox" id="title-box">
+    HAPPINESS GARDEN
+    <span>► DRAG TO EXPLORE · PLANT YOUR FEELING</span>
+  </div>
+  <div class="pbox" id="count-box">
+    <b id="fcount">0</b>
+    FLOWERS
+  </div>
+</div>
+
+<div id="minimap-wrap">
+  <div class="pbox" id="minimap-box">
+    <div id="minimap-lbl">OVERVIEW</div>
+    <canvas id="minimap" width="80" height="60"></canvas>
+  </div>
+</div>
+
+<div id="scroll-hint">◄ DRAG TO EXPLORE THE GARDEN ►</div>
+<div id="toast"></div>
+<div id="flower-tip"></div>
+
+<div id="panel">
+  <div id="panel-lbl">▼ HOW DO YOU FEEL RIGHT NOW? ▼</div>
+  <div id="btns">
+    <button class="ebtn" data-e="joy"><span class="ic">☀</span>JOY</button>
+    <button class="ebtn" data-e="gratitude"><span class="ic">🌿</span>THANKS</button>
+    <button class="ebtn" data-e="love"><span class="ic">♥</span>LOVE</button>
+    <button class="ebtn" data-e="wonder"><span class="ic">✦</span>WONDER</button>
+    <button class="ebtn" data-e="calm"><span class="ic">～</span>CALM</button>
+    <button class="ebtn" data-e="playful"><span class="ic">★</span>PLAYFUL</button>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════════════════
+//  SCROLLABLE ISOMETRIC HAPPINESS GARDEN
+//  • Large world grid that auto-expands as flowers fill up
+//  • Camera drag + scroll to explore
+//  • Minimap overview
+//  • Pixel art rendered on low-res buffer scaled up
+// ════════════════════════════════════════════════════════════════════
+
+// ── RENDER BUFFER ────────────────────────────────────────────────
+const SCALE = 3;         // screen pixels per game pixel
+const GW    = Math.ceil(window.innerWidth  / SCALE);
+const GH    = Math.ceil(window.innerHeight / SCALE);
+
+const screen = document.getElementById('worldCanvas');
+const sctx   = screen.getContext('2d');
+
+const buf  = document.createElement('canvas');
+buf.width  = GW; buf.height = GH;
+const g    = buf.getContext('2d');
+g.imageSmoothingEnabled = false;
+
+function resize() {
+  screen.width  = window.innerWidth;
+  screen.height = window.innerHeight;
+  sctx.imageSmoothingEnabled = false;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── ISO CONFIG ────────────────────────────────────────────────────
+const TW = 20;   // tile width  (game pixels)
+const TH = 10;   // tile height (game pixels)
+const TILE_EDGE = 4;  // side wall height
+
+// World grid — starts at 24×24, expands in chunks
+let COLS = 24;
+let ROWS = 24;
+const EXPAND_THRESHOLD = 0.65;  // expand when 65% full
+const EXPAND_BY = 8;            // tiles added on each side
+
+// Camera: offset in GAME pixels from world origin to screen centre
+let camX = 0, camY = 0;
+
+// Convert tile (col,row) → game-pixel screen position
+function tileToGame(col, row) {
+  // World origin at game coords (originGX, originGY)
+  return {
+    x: originGX + (col - row) * (TW / 2),
+    y: originGY + (col + row) * (TH / 2),
+  };
+}
+
+// The "origin" of the iso grid in game coords, offset by camera
+let originGX = GW / 2;
+let originGY = GH * 0.18;
+
+// Recompute origin from camX/camY
+function updateOrigin() {
+  // camX/camY is the desired tile-space position at screen centre
+  const cx = COLS / 2, cy = ROWS / 2;
+  originGX = GW / 2 - (cx - cy) * (TW / 2) + camX;
+  originGY = GH / 2 - (cx + cy) * (TH / 2) + camY;
+}
+
+// Centre camera on the middle of the grid
+function centreCamera() {
+  camX = 0; camY = 0;
+  updateOrigin();
+}
+centreCamera();
+
+// ── PALETTE ───────────────────────────────────────────────────────
+const C = {
+  sky0: '#0a0a14', sky1: '#0e1228', sky2: '#141835',
+  star: '#d0c8b8',
+  moon: '#f0e6a0',
+  tileColors: ['#3a6b28','#4a7c34','#4f8438','#568c3a','#426030'],
+  tileEdgeL:  '#2a5018',
+  tileEdgeR:  '#1e3c10',
+  farmPath:   '#6b5030',
+  farmPathE:  '#4a3820',
+  stem0: '#2d5a1b', stem1: '#4a7c2f',
+  leaf0: '#4a7c2f', leaf1: '#6aad3d',
+  black: '#080808',
+};
+
+// ── EMOTION CONFIG ────────────────────────────────────────────────
+const ECFG = {
+  joy:       { name:'JOY',       petals:['#f9c74f','#ffe066','#f4a261'], center:'#e63946', stemH:[4,6], spark:'#ffe066' },
+  gratitude: { name:'GRATITUDE', petals:['#80ed99','#57cc99','#38a3a5'], center:'#f9c74f', stemH:[5,7], spark:'#80ed99' },
+  love:      { name:'LOVE',      petals:['#f87171','#ef476f','#fca5a5'], center:'#ffd166', stemH:[3,5], spark:'#f87171' },
+  wonder:    { name:'WONDER',    petals:['#7dd3fc','#38bdf8','#bae6fd'], center:'#f9c74f', stemH:[6,8], spark:'#7dd3fc' },
+  calm:      { name:'CALM',      petals:['#a5f3fc','#67e8f9','#cffafe'], center:'#f0e6b0', stemH:[4,6], spark:'#a5f3fc' },
+  playful:   { name:'PLAYFUL',   petals:['#fb923c','#f97316','#fcd34d'], center:'#7dd3fc', stemH:[3,5], spark:'#fb923c' },
+};
+
+const EMOTION_KEYS = Object.keys(ECFG);
+
+// ── STATE ─────────────────────────────────────────────────────────
+let flowers  = [];      // all planted flowers
+let sparks   = [];
+let tileColors = [];    // per-tile color index
+let time     = 0;
+let lastNewFlowerCol = null;
+let lastNewFlowerRow = null;
+let panelExpanded = false;
+
+// ── TILE GRID INIT ────────────────────────────────────────────────
+function initTileColors() {
+  tileColors = [];
+  for (let r = 0; r < ROWS; r++) {
+    tileColors[r] = [];
+    for (let c = 0; c < COLS; c++) {
+      tileColors[r][c] = Math.floor(Math.random() * C.tileColors.length);
+    }
+  }
+}
+initTileColors();
+
+const occupied = new Set();
+
+// ── EXPAND GRID ───────────────────────────────────────────────────
+function maybeExpand() {
+  const capacity = COLS * ROWS;
+  const used     = flowers.length;
+  if (used / capacity < EXPAND_THRESHOLD) return;
+
+  const oldCols = COLS, oldRows = ROWS;
+  COLS += EXPAND_BY; ROWS += EXPAND_BY;
+
+  // Shift all tile color data (new tiles added on all sides → offset by EXPAND_BY/2)
+  const offset = EXPAND_BY / 2;
+  const newTileColors = [];
+  for (let r = 0; r < ROWS; r++) {
+    newTileColors[r] = [];
+    for (let c = 0; c < COLS; c++) {
+      const oc = c - offset;
+      const or = r - offset;
+      if (oc >= 0 && oc < oldCols && or >= 0 && or < oldRows) {
+        newTileColors[r][c] = tileColors[or][oc];
+      } else {
+        newTileColors[r][c] = Math.floor(Math.random() * C.tileColors.length);
+      }
+    }
+  }
+  tileColors = newTileColors;
+
+  // Shift all existing flower positions
+  flowers.forEach(f => {
+    f.col += offset;
+    f.row += offset;
+  });
+
+  // Rebuild occupied set
+  occupied.clear();
+  flowers.forEach(f => occupied.add(`${f.col},${f.row}`));
+
+  // Keep camera centred
+  updateOrigin();
+  toast('GARDEN EXPANDED!');
+}
+
+// ── PERSISTENCE ───────────────────────────────────────────────────
+const SK = 'iso_garden_v3';
+function save() {
+  try {
+    localStorage.setItem(SK, JSON.stringify({
+      cols: COLS, rows: ROWS,
+      flowers: flowers.map(f => ({
+        col:f.col, row:f.row, emotion:f.emotion,
+        seed:f.seed, stemH:f.stemH, pIdx:f.pIdx,
+        leafSide:f.leafSide, name:f.name,
+      })),
+    }));
+  } catch(e) {}
+}
+function load() {
+  try {
+    const raw = localStorage.getItem(SK);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    COLS = data.cols || 24;
+    ROWS = data.rows || 24;
+    initTileColors();
+    data.flowers.forEach(d => {
+      occupied.add(`${d.col},${d.row}`);
+      const f = mkFlower(d.emotion, d.col, d.row, d.stemH, d.seed, d.pIdx, d.leafSide, d.name);
+      f.grow = 1;
+      flowers.push(f);
+    });
+    updateCount();
+  } catch(e) {}
+}
+
+// ── SEEDED RANDOM ─────────────────────────────────────────────────
+function sr(seed, n) {
+  const x = Math.sin(seed * 127.1 + n * 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+// ── FLOWER FACTORY ────────────────────────────────────────────────
+function mkFlower(emotion, col, row, stemH, seed, pIdx, leafSide, name) {
+  const cfg = ECFG[emotion];
+  return {
+    emotion, col, row, stemH, seed, name: name || '',
+    pIdx:     pIdx     ?? Math.floor(sr(seed,1) * cfg.petals.length),
+    leafSide: leafSide ?? (sr(seed,2) > 0.5 ? 1 : -1),
+    cfg,
+    grow:     0,
+    sway:     sr(seed,3) * Math.PI * 2,
+    swaySpd:  0.4 + sr(seed,4) * 0.6,
+    glowPh:   sr(seed,5) * Math.PI * 2,
+  };
+}
+
+// ── PLANT ─────────────────────────────────────────────────────────
+function plantFlower(emotion) {
+  const cfg  = ECFG[emotion];
+  const seed = Math.random() * 9999;
+
+  // Find free tile, prefer near existing flowers or near centre
+  let col, row, key;
+  let attempts = 0;
+  do {
+    // Spiral outward from centre
+    const cx = COLS / 2, cy = ROWS / 2;
+    const spread = Math.min(COLS, ROWS) * 0.42 * (1 + flowers.length / (COLS * ROWS));
+    col = Math.round(cx + (Math.random() - 0.5) * spread * 2);
+    row = Math.round(cy + (Math.random() - 0.5) * spread * 2);
+    col = Math.max(1, Math.min(COLS - 2, col));
+    row = Math.max(1, Math.min(ROWS - 2, row));
+    key = `${col},${row}`;
+    attempts++;
+  } while (occupied.has(key) && attempts < 500);
+
+  occupied.add(key);
+
+  const stemH = cfg.stemH[0] + Math.floor(Math.random() * (cfg.stemH[1] - cfg.stemH[0] + 1));
+  const pIdx  = Math.floor(Math.random() * cfg.petals.length);
+  const f     = mkFlower(emotion, col, row, stemH, seed, pIdx, Math.random()>.5?1:-1, '');
+  flowers.push(f);
+
+  lastNewFlowerCol = col;
+  lastNewFlowerRow = row;
+
+  // Camera pan to new flower
+  panToTile(col, row);
+
+  // Sparks
+  updateOrigin();
+  const sp = tileToGame(col, row);
+  spawnSparks(sp.x, sp.y - stemH * 4, cfg.spark);
+
+  toast(`+1 ${cfg.name} FLOWER PLANTED!`);
+  updateCount();
+  maybeExpand();
+  save();
+
+  // Show scroll hint after 3rd flower
+  if (flowers.length === 3) showScrollHint();
+}
+
+function panToTile(col, row) {
+  // Smooth pan: set camX/camY so this tile is near centre
+  const cx = COLS / 2, cy = ROWS / 2;
+  const dcol = col - cx, drow = row - cy;
+  targetCamX = -( (dcol - drow) * (TW / 2) );
+  targetCamY = -( (dcol + drow) * (TH / 2) );
+}
+
+let targetCamX = 0, targetCamY = 0;
+
+// ── SPARKS ────────────────────────────────────────────────────────
+function spawnSparks(sx, sy, color) {
+  for (let i = 0; i < 20; i++) {
+    const a = (Math.PI * 2 * i / 20) + (Math.random() - .5) * .5;
+    const sp = .5 + Math.random() * 2.2;
+    sparks.push({ x:sx, y:sy, vx:Math.cos(a)*sp, vy:Math.sin(a)*sp-.9, life:1, color, sz:1+Math.floor(Math.random()*2) });
+  }
+}
+
+// ── PIXEL HELPERS ─────────────────────────────────────────────────
+function px(x, y, col, w=1, h=1) {
+  g.fillStyle = col;
+  g.fillRect(Math.round(x)-Math.floor(w/2), Math.round(y)-Math.floor(h/2), w, h);
+}
+function pixEllipse(cx, cy, rx, ry, col) {
+  for (let dy = -ry; dy <= ry; dy++) {
+    const f2 = 1 - (dy*dy) / (ry*ry + .001);
+    if (f2 < 0) continue;
+    const dx = Math.round(rx * Math.sqrt(f2));
+    g.fillStyle = col;
+    g.fillRect(Math.round(cx-dx), Math.round(cy+dy), dx*2+1, 1);
+  }
+}
+
+// ── DRAW TILE ─────────────────────────────────────────────────────
+function drawTile(col, row) {
+  const { x, y } = tileToGame(col, row);
+  // Cull tiles off screen
+  if (x < -TW || x > GW + TW || y < -TH * 4 || y > GH + TH * 4) return;
+
+  const hw = TW / 2, hh = TH / 2;
+  const colorIdx = tileColors[row] ? tileColors[row][col] : 0;
+  const top = C.tileColors[colorIdx] || C.tileColors[0];
+
+  // Top face
+  g.fillStyle = top;
+  g.beginPath();
+  g.moveTo(Math.round(x),      Math.round(y - hh));
+  g.lineTo(Math.round(x + hw), Math.round(y));
+  g.lineTo(Math.round(x),      Math.round(y + hh));
+  g.lineTo(Math.round(x - hw), Math.round(y));
+  g.closePath();
+  g.fill();
+
+  // Left face
+  g.fillStyle = C.tileEdgeL;
+  g.beginPath();
+  g.moveTo(Math.round(x-hw), Math.round(y));
+  g.lineTo(Math.round(x),    Math.round(y+hh));
+  g.lineTo(Math.round(x),    Math.round(y+hh+TILE_EDGE));
+  g.lineTo(Math.round(x-hw), Math.round(y+TILE_EDGE));
+  g.closePath();
+  g.fill();
+
+  // Right face
+  g.fillStyle = C.tileEdgeR;
+  g.beginPath();
+  g.moveTo(Math.round(x),    Math.round(y+hh));
+  g.lineTo(Math.round(x+hw), Math.round(y));
+  g.lineTo(Math.round(x+hw), Math.round(y+TILE_EDGE));
+  g.lineTo(Math.round(x),    Math.round(y+hh+TILE_EDGE));
+  g.closePath();
+  g.fill();
+}
+
+// ── DRAW FLOWER ───────────────────────────────────────────────────
+function drawFlower(f) {
+  if (f.grow <= 0.01) return;
+  const { x, y } = tileToGame(f.col, f.row);
+  if (x < -TW*2 || x > GW+TW*2 || y < -TH*10 || y > GH+TH*3) return;
+
+  const gp    = f.grow;
+  const sway  = Math.round(Math.sin(time * f.swaySpd + f.sway) * 1.5);
+  const stemPx = Math.round(f.stemH * 3.5 * Math.min(1, gp * 2));
+
+  // Shadow
+  if (gp > 0.3) {
+    g.fillStyle = 'rgba(0,0,0,0.3)';
+    g.beginPath();
+    g.ellipse(Math.round(x+1), Math.round(y+TH/2+1), 4, 2, 0, 0, Math.PI*2);
+    g.fill();
+  }
+
+  // Stem
+  for (let i = 0; i < stemPx; i++) {
+    const t = i / stemPx;
+    const col = i % 3 === 0 ? C.stem1 : C.stem0;
+    g.fillStyle = col;
+    g.fillRect(Math.round(x + Math.round(sway*t*.5)), Math.round(y - i) - 1, 1, 1);
+  }
+
+  // Leaf
+  if (gp > 0.45) {
+    const lh = Math.round(stemPx * 0.48);
+    const lx = x + Math.round(sway * 0.4);
+    const ly = y - lh;
+    const ls = f.leafSide;
+    g.fillStyle = C.leaf1;
+    g.fillRect(Math.round(lx+ls),   Math.round(ly),   2, 1);
+    g.fillRect(Math.round(lx+ls*2), Math.round(ly-1), 2, 1);
+    g.fillRect(Math.round(lx+ls*3), Math.round(ly-2), 1, 1);
+    g.fillStyle = C.leaf0;
+    g.fillRect(Math.round(lx+ls),   Math.round(ly+1), 1, 1);
+  }
+
+  // Flower head
+  if (gp > 0.65) {
+    const fp  = Math.min(1, (gp - 0.65) / 0.35);
+    const hx  = x + sway;
+    const hy  = y - stemPx - 1;
+    const pc  = f.cfg.petals[f.pIdx];
+    const pr  = Math.max(1, Math.round(3 * fp));
+    const n   = f.emotion === 'wonder' ? 7 :
+                f.emotion === 'love'   ? 5 :
+                f.emotion === 'calm'   ? 5 : 6;
+
+    for (let i = 0; i < n; i++) {
+      const a  = (Math.PI*2*i/n) + time * 0.015 * f.swaySpd;
+      const ox = Math.round(Math.cos(a) * (pr + 1));
+      const oy = Math.round(Math.sin(a) * (pr + 1) * 0.65);
+      g.fillStyle = pc;
+      g.fillRect(Math.round(hx+ox-1), Math.round(hy+oy-1), 2, 2);
+      g.fillStyle = f.cfg.petals[0];
+      g.fillRect(Math.round(hx+ox),   Math.round(hy+oy-1), 1, 1);
+    }
+
+    pixEllipse(hx, hy, pr, Math.round(pr*.65), C.black);
+    pixEllipse(hx, hy, Math.max(1,pr-1), Math.max(1,Math.round((pr-1)*.65)), f.cfg.center);
+    g.fillStyle = '#ffffff';
+    g.fillRect(Math.round(hx-1), Math.round(hy-1), 1, 1);
+
+    // Sparkle during growth
+    if (fp < 0.5) {
+      const gl = 0.5 + 0.5*Math.sin(time*6+f.glowPh);
+      if (gl > 0.7) {
+        g.fillStyle = pc;
+        g.fillRect(hx, hy-pr-2, 1, 1);
+        g.fillRect(hx, hy+pr+1, 1, 1);
+        g.fillRect(hx-pr-2, hy, 1, 1);
+        g.fillRect(hx+pr+2, hy, 1, 1);
+      }
+    }
+  }
+}
+
+// ── BACKGROUND / SKY ─────────────────────────────────────────────
+const STARS = Array.from({length:90}, () => ({
+  x: Math.floor(Math.random()*GW),
+  y: Math.floor(Math.random()*(GH*0.55)),
+  phase: Math.random()*Math.PI*2,
+  spd: .3+Math.random()*1.4,
+  big: Math.random()<.07,
+}));
+
+function drawSky() {
+  for (let y=0; y<GH*0.65; y++) {
+    const t = y/(GH*0.65);
+    const r = Math.round(10+t*12), gg = Math.round(10+t*14), b = Math.round(20+t*32);
+    g.fillStyle=`rgb(${r},${gg},${b})`;
+    g.fillRect(0,y,GW,1);
+  }
+  g.fillStyle='#090910';
+  g.fillRect(0, Math.round(GH*0.65), GW, GH);
+
+  // Moon (fixed in sky)
+  pixEllipse(GW-26, 15, 8, 8, '#f5edb0');
+  pixEllipse(GW-26, 15, 6, 6, '#f0e6a0');
+  px(GW-29, 13, '#c8b870', 2, 2);
+  px(GW-22, 17, '#c8b870', 1, 1);
+  g.fillStyle='rgba(240,230,160,.04)';
+  g.beginPath(); g.arc(GW-26, 15, 24, 0, Math.PI*2); g.fill();
+
+  STARS.forEach(s => {
+    if (Math.sin(time*s.spd+s.phase) < 0.1) return;
+    g.fillStyle=C.star;
+    g.fillRect(s.x, s.y, 1, 1);
+    if (s.big) {
+      g.fillRect(s.x+1,s.y,1,1); g.fillRect(s.x-1,s.y,1,1);
+      g.fillRect(s.x,s.y+1,1,1); g.fillRect(s.x,s.y-1,1,1);
+    }
+  });
+}
+
+// ── MINIMAP ───────────────────────────────────────────────────────
+const mm = document.getElementById('minimap');
+const mctx = mm.getContext('2d');
+mctx.imageSmoothingEnabled = false;
+const MM_W = 80, MM_H = 60;
+
+function drawMinimap() {
+  mctx.fillStyle = '#1a2a18';
+  mctx.fillRect(0, 0, MM_W, MM_H);
+
+  // Draw flowers as dots
+  flowers.forEach(f => {
+    const mx = (f.col / COLS) * MM_W;
+    const my = (f.row / ROWS) * MM_H;
+    mctx.fillStyle = f.cfg.petals[f.pIdx];
+    mctx.fillRect(Math.round(mx), Math.round(my), 2, 2);
+  });
+
+  // Viewport rect
+  // Figure out which tile range is visible
+  const cx = COLS/2, cy = ROWS/2;
+  const dcx = -camX / (TW/2), dcy = -camY / (TH/2);
+  const visC = (dcx + dcy) / 2;
+  const visR = (dcy - dcx) / 2;
+  const visCols = (GW / TW) * 1.8;
+  const visRows = (GH / TH) * 1.2;
+  const vx = ((visC - visCols/2) / COLS) * MM_W;
+  const vy = ((visR - visRows/2) / ROWS) * MM_H;
+  const vw = (visCols / COLS) * MM_W;
+  const vh = (visRows / ROWS) * MM_H;
+
+  mctx.strokeStyle = '#c8a84b';
+  mctx.lineWidth = 1;
+  mctx.strokeRect(Math.round(vx), Math.round(vy), Math.round(vw), Math.round(vh));
+}
+
+// ── DRAG / PAN ────────────────────────────────────────────────────
+let dragging = false, dragStartX=0, dragStartY=0, dragCamX=0, dragCamY=0;
+
+screen.addEventListener('mousedown', e => {
+  // Don't start drag on panel buttons
+  dragging=true; screen.classList.add('dragging');
+  dragStartX=e.clientX; dragStartY=e.clientY;
+  dragCamX=camX; dragCamY=camY;
+});
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  const dx = (e.clientX-dragStartX)/SCALE;
+  const dy = (e.clientY-dragStartY)/SCALE;
+  camX = dragCamX + dx; camY = dragCamY + dy;
+  targetCamX = camX; targetCamY = camY;
+  clampCamera();
+  updateOrigin();
+});
+window.addEventListener('mouseup', () => { dragging=false; screen.classList.remove('dragging'); });
+
+// Touch support
+screen.addEventListener('touchstart', e => {
+  const t = e.touches[0];
+  dragging=true; dragStartX=t.clientX; dragStartY=t.clientY;
+  dragCamX=camX; dragCamY=camY;
+}, {passive:true});
+window.addEventListener('touchmove', e => {
+  if (!dragging) return;
+  const t = e.touches[0];
+  const dx = (t.clientX-dragStartX)/SCALE;
+  const dy = (t.clientY-dragStartY)/SCALE;
+  camX = dragCamX+dx; camY = dragCamY+dy;
+  targetCamX = camX; targetCamY = camY;
+  clampCamera(); updateOrigin();
+}, {passive:true});
+window.addEventListener('touchend', () => { dragging=false; });
+
+function clampCamera() {
+  const maxOff = COLS * TW * 0.55;
+  camX = Math.max(-maxOff, Math.min(maxOff, camX));
+  camY = Math.max(-maxOff, Math.min(maxOff, camY));
+}
+
+// ── SMOOTH CAM FOLLOW ─────────────────────────────────────────────
+function smoothCam() {
+  if (!dragging) {
+    camX += (targetCamX - camX) * 0.06;
+    camY += (targetCamY - camY) * 0.06;
+    updateOrigin();
+  }
+}
+
+// ── COUNTER & TOAST ───────────────────────────────────────────────
+function updateCount() {
+  document.getElementById('fcount').textContent = flowers.length;
+}
+let toastT = null;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.style.opacity='1';
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.style.opacity='0', 2200);
+}
+
+function showScrollHint() {
+  const el = document.getElementById('scroll-hint');
+  el.style.opacity='1';
+  setTimeout(() => el.style.opacity='0', 3500);
+}
+
+// ── MAIN LOOP ─────────────────────────────────────────────────────
+function loop(ts) {
+  time = ts * 0.001;
+  smoothCam();
+
+  // Clear buffer
+  g.fillStyle = C.sky0;
+  g.fillRect(0, 0, GW, GH);
+
+  drawSky();
+
+  // Draw tiles back-to-front (painter's algo: low col+row first)
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      drawTile(c, r);
+    }
+  }
+
+  // Draw flowers sorted by depth
+  const sortedFlowers = [...flowers].sort((a,b)=>(a.col+a.row)-(b.col+b.row));
+  sortedFlowers.forEach(f => {
+    if (f.grow < 1) f.grow = Math.min(1, f.grow + 0.009);
+    drawFlower(f);
+  });
+
+  // Sparks
+  for (let i=sparks.length-1; i>=0; i--) {
+    const s=sparks[i];
+    s.x+=s.vx; s.y+=s.vy; s.vy+=0.07;
+    s.life-=0.04;
+    if (s.life<=0) { sparks.splice(i,1); continue; }
+    g.fillStyle=s.color;
+    g.fillRect(Math.round(s.x),Math.round(s.y),s.sz,s.sz);
+  }
+
+  // Grid border highlight
+  drawGridBorder();
+
+  // Blit to screen
+  sctx.imageSmoothingEnabled = false;
+  sctx.clearRect(0, 0, screen.width, screen.height);
+  sctx.drawImage(buf, 0, 0, screen.width, screen.height);
+
+  drawMinimap();
+  requestAnimationFrame(loop);
+}
+
+// Subtle highlight around grid edge
+function drawGridBorder() {
+  // Draw bright dot at each corner of the grid
+  const corners = [
+    tileToGame(0, 0),
+    tileToGame(COLS-1, 0),
+    tileToGame(0, ROWS-1),
+    tileToGame(COLS-1, ROWS-1),
+  ];
+  g.fillStyle = 'rgba(200,168,75,0.25)';
+  corners.forEach(c => {
+    if (c.x > -2 && c.x < GW+2 && c.y > -2 && c.y < GH+2) {
+      g.fillRect(Math.round(c.x)-1, Math.round(c.y)-1, 2, 2);
+    }
+  });
+}
+
+// ── BUTTONS ───────────────────────────────────────────────────────
+document.querySelectorAll('.ebtn').forEach(btn => {
+  btn.addEventListener('click', () => plantFlower(btn.dataset.e));
+});
+
+// ── INIT ──────────────────────────────────────────────────────────
+load();
+if (flowers.length === 0) {
+  // Plant a few demo flowers so the garden isn't empty
+  const demos = ['joy','calm','love','wonder','gratitude','playful','joy','calm'];
+  demos.forEach(e => {
+    const cfg  = ECFG[e];
+    const seed = Math.random()*9999;
+    let col,row,key,att=0;
+    do {
+      col=Math.round(COLS/2+(Math.random()-.5)*10);
+      row=Math.round(ROWS/2+(Math.random()-.5)*10);
+      col=Math.max(1,Math.min(COLS-2,col));
+      row=Math.max(1,Math.min(ROWS-2,row));
+      key=`${col},${row}`; att++;
+    } while(occupied.has(key)&&att<200);
+    occupied.add(key);
+    const stemH=cfg.stemH[0]+Math.floor(Math.random()*(cfg.stemH[1]-cfg.stemH[0]+1));
+    const f=mkFlower(e,col,row,stemH,seed,Math.floor(Math.random()*cfg.petals.length),Math.random()>.5?1:-1,'');
+    f.grow=1;
+    flowers.push(f);
+  });
+  updateCount();
+}
+
+centreCamera();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
